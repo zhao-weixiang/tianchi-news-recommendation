@@ -115,13 +115,13 @@ if __name__ == '__main__':
     log.debug(f'max_threads {max_threads}')
 
     # 增加hot召回方法
-    # recall_methods = ['itemcf', 'w2v', 'swing', 'hot']
-    recall_methods = ['itemcf', 'w2v', 'swing']
+    # recall_methods = ['itemcf', 'w2v', 'twotower', 'hot']
+    recall_methods = ['itemcf', 'w2v', 'twotower']
 
     # 调整召回权重
     weights = {
         'itemcf': 1.0, 
-        'swing': 1.0, 
+        'twotower': 1.0, 
         'w2v': 0.1,
         # 'hot': 0.1  # 降低热度召回的权重
     }

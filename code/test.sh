@@ -4,8 +4,8 @@ python data.py --mode valid --logfile data.log
 # itemcf 召回
 python recall_itemcf.py --mode valid --logfile itemcf.log
 
-# swing 召回
-python recall_swing.py --mode valid --logfile swing.log
+# twotower 召回
+python recall_twotower.py --mode valid --logfile twotower.log
 
 # w2v 召回
 python recall_w2v.py --mode valid --logfile w2v.log

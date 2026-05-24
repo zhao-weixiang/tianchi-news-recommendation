@@ -70,18 +70,13 @@ def func_if_last(x):
         return 0
 
 
-def func_swing_sim_last(x):
-    """计算用户最后一次交互物品与目标物品的Swing相似度"""
+def func_twotower_score(x):
+    """读取双塔对当前用户-候选文章的召回分数"""
     user_id = x['user_id']
     article_id = x['article_id']
 
-    # 添加错误处理
-    if user_id not in user_item_dict:
-        return 0
-        
     try:
-        last_item = user_item_dict[user_id][-1]
-        return swing_sim[last_item][article_id]
+        return twotower_score[user_id][article_id]
     except Exception as e:
         return 0
 
@@ -340,21 +335,21 @@ if __name__ == '__main__':
     log.debug(f'df_feature.shape: {df_feature.shape}')
     log.debug(f'df_feature.columns: {df_feature.columns.tolist()}')
 
-    ## swing 相关
+    ## twotower 相关
     if mode == 'valid':
-        f = open('../user_data/sim/offline/swing_sim.pkl', 'rb')
-        swing_sim = pickle.load(f)
+        f = open('../user_data/data/offline/twotower_score.pkl', 'rb')
+        twotower_score = pickle.load(f)
         f.close()
     elif mode == 'test':
-        f = open('../user_data/sim/test/swing_sim.pkl', 'rb')
-        swing_sim = pickle.load(f)
+        f = open('../user_data/data/test/twotower_score.pkl', 'rb')
+        twotower_score = pickle.load(f)
         f.close()
     else:
-        f = open('../user_data/sim/online/swing_sim.pkl', 'rb')
-        swing_sim = pickle.load(f)
+        f = open('../user_data/data/online/twotower_score.pkl', 'rb')
+        twotower_score = pickle.load(f)
         f.close()
 
-    df_feature['user_last_click_article_swing_sim'] = df_feature.apply(func_swing_sim_last, axis=1)
+    df_feature['user_article_twotower_score'] = df_feature.apply(func_twotower_score, axis=1)
 
     log.debug(f'df_feature.shape: {df_feature.shape}')
     log.debug(f'df_feature.columns: {df_feature.columns.tolist()}')

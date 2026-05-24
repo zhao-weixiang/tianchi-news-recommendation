@@ -8,3 +8,4 @@ multitasking==0.0.9
 gensim==3.8.3
 lightgbm==3.0.0
 scikit_learn==0.24.0
+torch>=1.10.0

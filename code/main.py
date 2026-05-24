@@ -10,8 +10,8 @@ from tqdm import tqdm
 class NewsRecommender:
     def __init__(self, mode='valid'):
         self.mode = mode
-        self.recall_methods = ['itemcf', 'w2v', 'swing'] 
-        self.recall_weights = {'itemcf': 1, 'swing': 1, 'w2v': 0.1}
+        self.recall_methods = ['itemcf', 'w2v', 'twotower'] 
+        self.recall_weights = {'itemcf': 1, 'twotower': 1, 'w2v': 0.1}
         
     def load_data(self):
         """加载基础数据"""
