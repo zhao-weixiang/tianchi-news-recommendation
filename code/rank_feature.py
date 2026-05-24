@@ -70,8 +70,8 @@ def func_if_last(x):
         return 0
 
 
-def func_binetwork_sim_last(x):
-    """计算用户最后一次交互物品与目标物品的二部网络相似度"""
+def func_swing_sim_last(x):
+    """计算用户最后一次交互物品与目标物品的Swing相似度"""
     user_id = x['user_id']
     article_id = x['article_id']
 
@@ -81,7 +81,7 @@ def func_binetwork_sim_last(x):
         
     try:
         last_item = user_item_dict[user_id][-1]
-        return binetwork_sim[last_item][article_id]
+        return swing_sim[last_item][article_id]
     except Exception as e:
         return 0
 
@@ -340,21 +340,21 @@ if __name__ == '__main__':
     log.debug(f'df_feature.shape: {df_feature.shape}')
     log.debug(f'df_feature.columns: {df_feature.columns.tolist()}')
 
-    ## binetwork 相关
+    ## swing 相关
     if mode == 'valid':
-        f = open('../user_data/sim/offline/binetwork_sim.pkl', 'rb')
-        binetwork_sim = pickle.load(f)
+        f = open('../user_data/sim/offline/swing_sim.pkl', 'rb')
+        swing_sim = pickle.load(f)
         f.close()
     elif mode == 'test':
-        f = open('../user_data/sim/test/binetwork_sim.pkl', 'rb')
-        binetwork_sim = pickle.load(f)
+        f = open('../user_data/sim/test/swing_sim.pkl', 'rb')
+        swing_sim = pickle.load(f)
         f.close()
     else:
-        f = open('../user_data/sim/online/binetwork_sim.pkl', 'rb')
-        binetwork_sim = pickle.load(f)
+        f = open('../user_data/sim/online/swing_sim.pkl', 'rb')
+        swing_sim = pickle.load(f)
         f.close()
 
-    df_feature['user_last_click_article_binetwork_sim'] = df_feature.apply(func_binetwork_sim_last, axis=1)
+    df_feature['user_last_click_article_swing_sim'] = df_feature.apply(func_swing_sim_last, axis=1)
 
     log.debug(f'df_feature.shape: {df_feature.shape}')
     log.debug(f'df_feature.columns: {df_feature.columns.tolist()}')

@@ -53,9 +53,12 @@ def mms(df):
 
     ans = []
     for user_id, sim_score in tqdm(df[['user_id', 'sim_score']].values):
-        ans.append((sim_score - user_score_min[user_id]) /
-                   (user_score_max[user_id] - user_score_min[user_id]) +
-                   10**-3)
+        score_range = user_score_max[user_id] - user_score_min[user_id]
+        if score_range == 0:
+            ans.append(1.0)
+        else:
+            ans.append((sim_score - user_score_min[user_id]) / score_range +
+                       10**-3)
     return ans
 
 
@@ -112,13 +115,13 @@ if __name__ == '__main__':
     log.debug(f'max_threads {max_threads}')
 
     # 增加hot召回方法
-    # recall_methods = ['itemcf', 'w2v', 'binetwork', 'hot']
-    recall_methods = ['itemcf', 'w2v', 'binetwork']
+    # recall_methods = ['itemcf', 'w2v', 'swing', 'hot']
+    recall_methods = ['itemcf', 'w2v', 'swing']
 
     # 调整召回权重
     weights = {
         'itemcf': 1.0, 
-        'binetwork': 1.0, 
+        'swing': 1.0, 
         'w2v': 0.1,
         # 'hot': 0.1  # 降低热度召回的权重
     }
