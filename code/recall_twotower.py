@@ -37,6 +37,10 @@ parser.add_argument('--max_seq_len', type=int, default=20)
 parser.add_argument('--emb_dim', type=int, default=64)
 parser.add_argument('--cate_dim', type=int, default=16)
 parser.add_argument('--hidden_dim', type=int, default=128)
+parser.add_argument('--content_emb_dim', type=int, default=250)
+parser.add_argument('--content_emb_path', default='../data/articles_emb.csv')
+parser.add_argument('--content_emb_chunksize', type=int, default=50000)
+parser.add_argument('--user_time_decay', type=float, default=0.9)
 parser.add_argument('--batch_size', type=int, default=1024)
 parser.add_argument('--epochs', type=int, default=3)
 parser.add_argument('--lr', type=float, default=1e-3)
@@ -73,39 +77,67 @@ class SequenceDataset(Dataset):
 
 
 class TwoTowerModel(nn.Module):
-    def __init__(self, item_num, cate_num, emb_dim=64, cate_dim=16, hidden_dim=128):
+    def __init__(self, item_num, cate_num, emb_dim=64, cate_dim=16,
+                 hidden_dim=128, content_emb_dim=250, max_seq_len=20,
+                 user_time_decay=0.9):
         super().__init__()
+        self.max_seq_len = max_seq_len
+        self.user_time_decay = user_time_decay
         self.item_embedding = nn.Embedding(item_num + 1, emb_dim, padding_idx=0)
         self.category_embedding = nn.Embedding(cate_num + 1, cate_dim, padding_idx=0)
 
+        self.user_attention = nn.Sequential(
+            nn.Linear(emb_dim, hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, 1),
+        )
         self.user_mlp = nn.Sequential(
             nn.Linear(emb_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, emb_dim),
         )
+        self.content_projection = nn.Sequential(
+            nn.Linear(content_emb_dim, emb_dim),
+            nn.ReLU(),
+        )
         self.item_mlp = nn.Sequential(
-            nn.Linear(emb_dim + cate_dim + 2, hidden_dim),
+            nn.Linear(emb_dim + cate_dim + emb_dim + 2, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, emb_dim),
         )
 
     def encode_user(self, hist_items):
         hist_emb = self.item_embedding(hist_items)
-        mask = (hist_items > 0).float().unsqueeze(-1)
-        pooled = (hist_emb * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
+        mask = (hist_items > 0)
+        attn_logits = self.user_attention(hist_emb).squeeze(-1)
+
+        pos = torch.arange(self.max_seq_len, device=hist_items.device).float()
+        distance_from_recent = (self.max_seq_len - 1) - pos
+        recency_bias = torch.log(
+            torch.pow(
+                torch.full_like(distance_from_recent, self.user_time_decay),
+                distance_from_recent
+            ).clamp(min=1e-6)
+        )
+        attn_logits = attn_logits + recency_bias.unsqueeze(0)
+        attn_logits = attn_logits.masked_fill(~mask, -1e9)
+        attn_weight = F.softmax(attn_logits, dim=1).unsqueeze(-1)
+        pooled = (hist_emb * attn_weight).sum(dim=1)
         user_vec = self.user_mlp(pooled)
         return F.normalize(user_vec, p=2, dim=1)
 
-    def encode_item(self, item_ids, item_cates, item_dense):
+    def encode_item(self, item_ids, item_cates, item_dense, item_content):
         item_emb = self.item_embedding(item_ids)
         cate_emb = self.category_embedding(item_cates)
-        item_input = torch.cat([item_emb, cate_emb, item_dense], dim=1)
+        content_emb = self.content_projection(item_content)
+        item_input = torch.cat([item_emb, cate_emb, content_emb, item_dense], dim=1)
         item_vec = self.item_mlp(item_input)
         return F.normalize(item_vec, p=2, dim=1)
 
-    def forward(self, hist_items, target_items, item_cates, item_dense, temperature):
+    def forward(self, hist_items, target_items, item_cates, item_dense,
+                item_content, temperature):
         user_vec = self.encode_user(hist_items)
-        item_vec = self.encode_item(target_items, item_cates, item_dense)
+        item_vec = self.encode_item(target_items, item_cates, item_dense, item_content)
         logits = torch.matmul(user_vec, item_vec.t()) / temperature
         labels = torch.arange(logits.size(0), device=logits.device)
         loss = F.cross_entropy(logits, labels)
@@ -175,6 +207,58 @@ def build_article_features(df_article, candidate_articles):
     return article_to_idx, idx_to_article, item_cates, item_dense, len(cate_to_idx)
 
 
+def load_article_content_embeddings(article_to_idx):
+    item_content = np.zeros(
+        (len(article_to_idx) + 1, args.content_emb_dim),
+        dtype='float32'
+    )
+    if args.content_emb_dim <= 0:
+        return item_content
+
+    if not os.path.exists(args.content_emb_path):
+        log.warning(f'content embedding file not found: {args.content_emb_path}')
+        return item_content
+
+    candidate_articles = set(article_to_idx.keys())
+    header = pd.read_csv(args.content_emb_path, nrows=0)
+    emb_cols = [col for col in header.columns if col.startswith('emb_')]
+    emb_cols = sorted(emb_cols, key=lambda x: int(x.split('_')[1]))
+    emb_cols = emb_cols[:args.content_emb_dim]
+    if len(emb_cols) != args.content_emb_dim:
+        log.warning(
+            f'expected {args.content_emb_dim} content embedding columns, got {len(emb_cols)}'
+        )
+
+    loaded_cnt = 0
+    usecols = ['article_id'] + emb_cols
+    dtype = {col: 'float32' for col in emb_cols}
+    for chunk in tqdm(
+        pd.read_csv(
+            args.content_emb_path,
+            usecols=usecols,
+            dtype=dtype,
+            chunksize=args.content_emb_chunksize
+        ),
+        desc='loading article content embeddings'
+    ):
+        chunk['article_id'] = chunk['article_id'].astype(int)
+        chunk = chunk[chunk['article_id'].isin(candidate_articles)]
+        if chunk.empty:
+            continue
+
+        vectors = chunk[emb_cols].values.astype('float32')
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        vectors = vectors / np.maximum(norms, 1e-12)
+        for article_id, vector in zip(chunk['article_id'].values, vectors):
+            item_content[article_to_idx[int(article_id)]] = vector
+            loaded_cnt += 1
+
+    log.info(
+        f'loaded content embeddings for {loaded_cnt}/{len(article_to_idx)} candidate articles'
+    )
+    return item_content
+
+
 def build_user_item_dict(df_click):
     df_click = df_click.sort_values(['user_id', 'click_timestamp'])
     user_item = df_click.groupby('user_id')['click_article_id'].agg(list).reset_index()
@@ -205,7 +289,7 @@ def build_training_arrays(user_item_dict, article_to_idx, max_seq_len, max_sampl
     return histories, targets
 
 
-def train_model(model, histories, targets, item_cates, item_dense):
+def train_model(model, histories, targets, item_cates, item_dense, item_content):
     dataset = SequenceDataset(histories, targets)
     loader = DataLoader(
         dataset,
@@ -217,6 +301,7 @@ def train_model(model, histories, targets, item_cates, item_dense):
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     item_cates_tensor = torch.from_numpy(item_cates).long().to(device)
     item_dense_tensor = torch.from_numpy(item_dense).float().to(device)
+    item_content_tensor = torch.from_numpy(item_content).float().to(device)
 
     model.to(device)
     model.train()
@@ -231,6 +316,7 @@ def train_model(model, histories, targets, item_cates, item_dense):
                 target_items,
                 item_cates_tensor[target_items],
                 item_dense_tensor[target_items],
+                item_content_tensor[target_items],
                 args.temperature
             )
             optimizer.zero_grad()
@@ -245,12 +331,13 @@ def train_model(model, histories, targets, item_cates, item_dense):
     return model
 
 
-def encode_all_items(model, item_cates, item_dense, idx_to_article, batch_size=4096):
+def encode_all_items(model, item_cates, item_dense, item_content, idx_to_article, batch_size=4096):
     model.eval()
     item_indices = np.array(sorted(idx_to_article.keys()), dtype='int64')
     item_vectors = {}
     item_cates_tensor = torch.from_numpy(item_cates).long().to(device)
     item_dense_tensor = torch.from_numpy(item_dense).float().to(device)
+    item_content_tensor = torch.from_numpy(item_content).float().to(device)
 
     with torch.no_grad():
         for start in tqdm(range(0, len(item_indices), batch_size), desc='encoding items'):
@@ -259,7 +346,8 @@ def encode_all_items(model, item_cates, item_dense, idx_to_article, batch_size=4
             vec = model.encode_item(
                 batch_items,
                 item_cates_tensor[batch_items],
-                item_dense_tensor[batch_items]
+                item_dense_tensor[batch_items],
+                item_content_tensor[batch_items]
             ).cpu().numpy()
 
             for item_idx, item_vec in zip(batch_idx, vec):
@@ -399,6 +487,7 @@ if __name__ == '__main__':
         df_article,
         candidate_articles
     )
+    item_content = load_article_content_embeddings(article_to_idx)
     user_item_dict = build_user_item_dict(df_click)
     hot_articles = (
         df_click['click_article_id'].value_counts().head(args.recall_num * 5).index.astype(int).tolist()
@@ -417,15 +506,18 @@ if __name__ == '__main__':
         cate_num=cate_num,
         emb_dim=args.emb_dim,
         cate_dim=args.cate_dim,
-        hidden_dim=args.hidden_dim
+        hidden_dim=args.hidden_dim,
+        content_emb_dim=args.content_emb_dim,
+        max_seq_len=args.max_seq_len,
+        user_time_decay=args.user_time_decay
     )
-    model = train_model(model, histories, targets, item_cates, item_dense)
+    model = train_model(model, histories, targets, item_cates, item_dense, item_content)
 
     model_path = os.path.join(paths['model_dir'], 'twotower.pt')
     torch.save(model.state_dict(), model_path)
     log.info(f'model saved to {model_path}')
 
-    item_vectors = encode_all_items(model, item_cates, item_dense, idx_to_article)
+    item_vectors = encode_all_items(model, item_cates, item_dense, item_content, idx_to_article)
     with open(os.path.join(paths['data_dir'], 'article_twotower.pkl'), 'wb') as f:
         pickle.dump(item_vectors, f)
 

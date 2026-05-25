@@ -121,7 +121,7 @@ if __name__ == '__main__':
     # 调整召回权重
     weights = {
         'itemcf': 1.0, 
-        'twotower': 1.0, 
+        'twotower': 0.2, 
         'w2v': 0.1,
         # 'hot': 0.1  # 降低热度召回的权重
     }
