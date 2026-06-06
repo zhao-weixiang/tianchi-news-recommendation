@@ -1,23 +1,36 @@
+> **本项目是基于[John-Chen92/tianchi-news-recommendation](https://github.com/John-Chen92/tianchi-news-recommendation)的修改版本**
+
+## 与原项目的差异
+- 新增了 swing 召回和 twotower （双塔）召回。原因：原版 Binetwork 这路更像弱化版共现 ItemCF，作为独立召回通道说服力不够，放在简历上容易被面试官质疑。指标上 Swing 更稳，但 twotower 更有技术深度。 该项目目前选择 twotower 召回，itemcf 召回和基于 word2vec 的 i2i 召回。
+- 修改了 test.sh，能正确输出日志，同时将原来的 Binetwork 召回改为 twotower 召回。
+
+## 原项目致谢
+本项目最初派生自 https://github.com/John-Chen92/tianchi-news-recommendation。  
+感谢原作者的杰出工作。
+
+## 项目背景
 零基础入门推荐系统 - 新闻推荐 Top2  
 
 比赛地址: https://tianchi.aliyun.com/competition/entrance/531842/introduction
 
-# 解决方案
-采用3种召回方式：itemcf 召回，Swing 召回和基于 word2vec 的 i2i 召回。合并去重并删除没有召回到真实商品的用户数据后，利用特征工程+ LGB 二分类模型进行排序。
+# 项目方案
+采用3种召回方式：itemcf 召回，twotower 召回和基于 word2vec 的 i2i 召回。合并去重并删除没有召回到真实商品的用户数据后，利用特征工程+ LGB 二分类模型进行排序。
 
 # 复现步骤
-操作系统：ubuntu 16.04  
+Ubuntu 16.04  
+
 ```
 pip install requirements.txt
 cd code
 bash test.sh
 ```
 
-# update
-将test.sh的代码依次运行即可，注意，我在运行data.py时必须把python版本改成3.7，如果跑不了记得conda整个3.7的环境
+Windows
 
-电脑性能还可以的可以跑gpu版本，binework的会快不少，4060ti可以20分钟内跑完，整体比较费时间的就是rank和这个
+建议直接在 PowerShell 中逐条执行 test.sh 中的命令。
 
-最后的排序由于之前老是一步报错就得重新来，直接改成了notebook，自己修改的时候也可以跟着来。
+# 注意
 
-然后本来还想试试冷启动和热度召回的，但是效果很不好，就没继续做了。
+在运行data.py时必须把python版本改成3.7，运行其他 py 时建议使用python 3.11的 conda 环境
+
+未使用的召回方案是因为效果不好，可以自己尝试和调整。
